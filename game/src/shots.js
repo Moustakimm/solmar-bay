@@ -2,15 +2,21 @@
 // Each one builds a real world with the game's own rules, then stages a moment
 // in it — a chase, a street scene, a mission — so the frame is what playing
 // really looks like, and the same seed always gives the same frame.
-import { STEP } from './config.js';
-import { makeCar } from './player.js';
-import { SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+
+import { ROAD_W, STEP } from './config.js';
+import { makeCar } from './driver.js';
+import { SCREEN_PLAY } from './render.js';
 
 /** Put a traffic car on a road near (x, y) so the street reads as alive. */
 function addTraffic(world, x, y, angle, color) {
   const car = makeCar(x, y, angle, { color, traffic: true });
   car.speed = 150;
+  car.cruise = 150;
   car.vertical = Math.abs(Math.cos(angle)) < 0.5;
+  car.dir = car.vertical ? (Math.sin(angle) > 0 ? 1 : -1) : (Math.cos(angle) > 0 ? 1 : -1);
+  car.lane = car.dir * (ROAD_W / 4);
+  car.at = car.vertical ? x - car.lane : y - car.lane;
+  car.along = car.vertical ? y : x;
   world.state.cars.push(car);
   return car;
 }
@@ -18,7 +24,7 @@ function addTraffic(world, x, y, angle, color) {
 function addPed(world, x, y, angle, shirt) {
   world.state.peds.push({
     x, y, angle, speed: 70, health: 50, shirt,
-    flee: false, fleeTimer: 0, dead: false, runOver: false, turnTimer: 99, debtor: false,
+    flee: false, fleeTimer: 0, dead: false, deadTimer: 0, runOver: false, turnTimer: 99, debtor: false, hits: 0,
   });
 }
 
@@ -26,6 +32,8 @@ function addCopCar(world, x, y, angle) {
   const car = makeCar(x, y, angle, { color: '#2f4fb8', police: true, kind: 'police' });
   car.speed = 420;
   car.siren = 0.4;
+  // Staged units get their names too, so the HUD never shows a blank unit.
+  car.unit = `UNIT ${world.state.copCars.length + 7}`;
   world.state.copCars.push(car);
   return car;
 }
@@ -48,14 +56,9 @@ function settle(world, seconds) {
 export function stageShot(name, world) {
   const state = world.state;
   world.reset();
-  // Settle FIRST, while the player is still on foot at the spawn: letting a
-  // staged car drive through the settle could run a pedestrian over and
-  // raise the wanted level past what the scene stages (the cover once came
-  // out at 5 stars with a third cop car for exactly that reason). Everything
-  // the scene places afterwards stays exactly where put.
   if (name === 'city') {
     state.player.x = 1500;
-    state.player.y = 1600; // far enough south that the coast is in frame
+    state.player.y = 1100;
     state.dusk = false;
     settle(world, 2);
     return { screen: SCREEN_PLAY, zoom: 0.42 };
@@ -75,7 +78,6 @@ export function stageShot(name, world) {
   if (name === 'chase') {
     state.dusk = true;
     state.time = 18 * 60 + 20;
-    settle(world, 0.6);
     const gold = state.goldCar;
     gold.x = 300;
     gold.y = 1500;
@@ -86,24 +88,23 @@ export function stageShot(name, world) {
     state.player.y = gold.y;
     state.player.angle = gold.angle;
     state.wanted = 3;
-    addCopCar(world, 300, 1240, Math.PI / 2);
-    addCopCar(world, 250, 1260, Math.PI / 2);
+    addCopCar(world, 300, 1100, Math.PI / 2);
+    addCopCar(world, 260, 1000, Math.PI / 2);
     addTraffic(world, 700, 1500, 0, '#e8e8e8');
     addTraffic(world, 300, 1750, -Math.PI / 2, '#3dc9c9');
     addPed(world, 380, 1620, 0, '#e8c33a');
     state.mission.index = 3;
     state.mission.step = 1;
+    settle(world, 0.6);
     gold.speed = 380; // the readout should show a chase in progress, not a stop
     return { screen: SCREEN_PLAY, zoom: 1 };
   }
   // cover (and any unknown name): Downtown chase at 3 stars.
-  settle(world, 0.8);
   const gold = state.goldCar;
   gold.x = 1500;
   gold.y = 1000;
   gold.angle = Math.PI / 2;
   gold.parked = false;
-  gold.speed = 420;
   state.player.inCar = gold;
   state.player.x = gold.x;
   state.player.y = gold.y;
@@ -113,8 +114,8 @@ export function stageShot(name, world) {
   state.wanted = 3;
   state.mission.index = 3;
   state.mission.step = 1;
-  addCopCar(world, 1500, 760, Math.PI / 2);
-  addCopCar(world, 1440, 800, Math.PI / 2);
+  addCopCar(world, 1500, 540, Math.PI / 2);
+  addCopCar(world, 1452, 470, Math.PI / 2);
   addTraffic(world, 1100, 1100, 0, '#d94f3d');
   addTraffic(world, 1900, 1000, Math.PI, '#3d7ad9');
   addTraffic(world, 1500, 1350, -Math.PI / 2, '#4fae5a');
@@ -122,5 +123,7 @@ export function stageShot(name, world) {
   addPed(world, 1580, 920, Math.PI, '#c94f8a');
   addPed(world, 1620, 1240, -Math.PI / 2, '#7a4fd9');
   state.shake = 0;
+  settle(world, 0.8);
+  gold.speed = 420; // the readout should show a chase in progress, not a stop
   return { screen: SCREEN_PLAY, zoom: 1 };
 }

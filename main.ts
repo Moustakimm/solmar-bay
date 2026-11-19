@@ -7,10 +7,10 @@
 // The game: Jax, new in the sun-soaked coastal city of Solmar Bay, works jobs
 // for Rosa, a fixer with a garage in Downtown — steal cars, run missions,
 // dodge the police across six districts, on foot and behind the wheel.
+//
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-// v2 pass (traffic, police, combat, missions, presentation): see README.md.
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
