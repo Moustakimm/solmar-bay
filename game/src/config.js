@@ -35,6 +35,12 @@ export const CAR = {
   trafficSpeed: 175,
 };
 
+// The gold Comet Rosa's Hot Wheels job is about: the quickest car in town, so
+// stealing it and running from the police feels like a real getaway.
+export const COMET = { topSpeed: 680, accel: 520, hp: 3 };
+export const COP_CAR_HP = 5; // a police cruiser takes more punishment than a sedan
+export const CAR_HP = 3; // how many shots a normal car takes before it is a wreck
+
 export const PED = { radius: 12, walkSpeed: 70, fleeSpeed: 210, health: 50 };
 export const COP = { radius: 13, runSpeed: 265, health: 80, punchDamage: 8, bustTime: 1.2 };
 
@@ -61,10 +67,11 @@ export const MISSIONS = [
   {
     id: 'courier', title: 'Courier Run', reward: 250,
     brief: "Rosa: 'A client needs three parcels across town. Fast. 150 seconds.'",
+    timer: 150, // the clock runs for the whole job, from the first parcel
     steps: [
       { type: 'goto', x: 700, y: 300, label: 'Parcel 1: Hills', radius: 80 },
       { type: 'goto', x: 2700, y: 1500, label: 'Parcel 2: Docks', radius: 80 },
-      { type: 'goto', x: 300, y: 1900, label: 'Parcel 3: Marina', radius: 80, timer: 150 },
+      { type: 'goto', x: 300, y: 1900, label: 'Parcel 3: Marina', radius: 80 },
     ],
   },
   {

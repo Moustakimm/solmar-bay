@@ -93,9 +93,12 @@ export function createAudio() {
       if (!context || muted) return;
       const car = state.player.inCar;
       const speed = car ? Math.abs(car.speed) : 0;
+      // The hum scales to the car being driven, so the gold Comet's faster
+      // top speed sounds faster too instead of pegging at the sedan's cap.
+      const top = car && car.topSpeed ? car.topSpeed : 560;
       if (engineGain) {
-        engineGain.gain.value = car ? 0.05 + (speed / 560) * 0.06 : 0;
-        engineOsc.frequency.value = 55 + (speed / 560) * 140;
+        engineGain.gain.value = car ? 0.05 + (speed / top) * 0.06 : 0;
+        engineOsc.frequency.value = 55 + (speed / top) * 140;
       }
       if (sirenGain && sirenOsc) {
         sirenGain.gain.value = state.wanted > 0 ? 0.045 : 0;

@@ -1,9 +1,9 @@
 // The Solmar Bay police: wanted stars, patrol cars that chase and ram, and
 // foot officers who run the player down and try to bust him. Cops spawn at
 // the nearest road when the heat rises and give up when it falls.
-import { CAR, COP, PALETTE, WANTED } from './config.js';
+import { CAR, COP, COP_CAR_HP, PALETTE, WANTED } from './config.js';
 import { makeCar } from './player.js';
-import { nearestRoad } from './world.js';
+import { collideBuildings, nearestRoad } from './world.js';
 import { EVENT_BUSTED } from './world.js';
 
 export function wantedStars(n) {
@@ -15,7 +15,7 @@ function spawnCopCar(state, random) {
   const road = nearestRoad(p.x + (random() < 0.5 ? -600 : 600), p.y);
   const x = road.vertical ? road.at : p.x + (random() < 0.5 ? -500 : 500);
   const y = road.vertical ? p.y + (random() < 0.5 ? -500 : 500) : road.at;
-  const car = makeCar(x, y, 0, { color: PALETTE.copCar, police: true, kind: 'police' });
+  const car = makeCar(x, y, 0, { color: PALETTE.copCar, police: true, kind: 'police', hp: COP_CAR_HP });
   car.speed = 0;
   car.siren = random() * 2;
   state.copCars.push(car);
@@ -37,6 +37,7 @@ function spawnFootCop(state, random) {
 }
 
 function chaseCar(state, car, dt) {
+  if (car.disabled) return; // shot to a wreck: it stays where it died
   const p = state.player;
   const dx = p.x - car.x;
   const dy = p.y - car.y;
@@ -49,8 +50,19 @@ function chaseCar(state, car, dt) {
   car.angle += Math.max(-2.4 * dt, Math.min(2.4 * dt, diff));
   const targetSpeed = Math.min(CAR.maxSpeed, 380 + state.wanted * 40);
   car.speed += (targetSpeed - car.speed) * Math.min(1, dt * 1.2);
-  car.x += Math.cos(car.angle) * car.speed * dt;
-  car.y += Math.sin(car.angle) * car.speed * dt;
+  const nx = car.x + Math.cos(car.angle) * car.speed * dt;
+  const ny = car.y + Math.sin(car.angle) * car.speed * dt;
+  // A police car drives around buildings like everything else on the road:
+  // it used to cut straight through them, which the chase camera showed plainly.
+  const front = { x: nx + Math.cos(car.angle) * 20, y: ny + Math.sin(car.angle) * 20 };
+  const back = { x: nx - Math.cos(car.angle) * 20, y: ny - Math.sin(car.angle) * 20 };
+  const cf = collideBuildings(state, front.x, front.y, 14);
+  const cb = collideBuildings(state, back.x, back.y, 14);
+  if (cf.hit || cb.hit) car.speed *= 0.6; // scrub speed off the wall, slide along it
+  car.x = (cf.x + cb.x) / 2;
+  car.y = (cf.y + cb.y) / 2;
+  car.x = Math.max(20, Math.min(3180, car.x));
+  car.y = Math.max(20, Math.min(2270, car.y));
   car.siren = (car.siren || 0) + dt;
   // Ram the player's car: a solid hit shakes the screen and slows them both.
   const pc = p.inCar;
@@ -98,8 +110,9 @@ export function stepPolice(state, dt, random, helpers) {
     if (cop.leaving) {
       // Walk away from the player and fade out of the scene.
       cop.angle = Math.atan2(cop.y - p.y, cop.x - p.x);
-      cop.x += Math.cos(cop.angle) * 120 * dt;
-      cop.y += Math.sin(cop.angle) * 120 * dt;
+      const c = collideBuildings(state, cop.x + Math.cos(cop.angle) * 120 * dt, cop.y + Math.sin(cop.angle) * 120 * dt, COP.radius);
+      cop.x = c.x;
+      cop.y = c.y;
       continue;
     }
     const dx = p.x - cop.x;
@@ -107,8 +120,9 @@ export function stepPolice(state, dt, random, helpers) {
     const dist = Math.hypot(dx, dy);
     cop.angle = Math.atan2(dy, dx);
     if (dist > 26) {
-      cop.x += Math.cos(cop.angle) * COP.runSpeed * dt;
-      cop.y += Math.sin(cop.angle) * COP.runSpeed * dt;
+      const c = collideBuildings(state, cop.x + Math.cos(cop.angle) * COP.runSpeed * dt, cop.y + Math.sin(cop.angle) * COP.runSpeed * dt, COP.radius);
+      cop.x = c.x;
+      cop.y = c.y;
     } else if (!p.inCar) {
       // Close enough to grab: the bust meter fills while the player dawdles.
       p.bustMeter += dt;

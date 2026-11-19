@@ -71,6 +71,15 @@ export function stepPedestrians(state, dt, random) {
       ped.flee = true;
       ped.fleeTimer = 2;
     }
+    // Panic spreads: a fleeing pedestrian sets off the people right next to them.
+    if (ped.flee) {
+      for (const other of state.peds) {
+        if (other !== ped && !other.dead && Math.hypot(other.x - ped.x, other.y - ped.y) < 120) {
+          other.flee = true;
+          other.fleeTimer = Math.max(other.fleeTimer, 1.5);
+        }
+      }
+    }
     if (ped.debtor) {
       // The debtor stands his ground until punched; then he runs.
       if (ped.flee) {

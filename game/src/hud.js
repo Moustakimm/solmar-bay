@@ -93,7 +93,7 @@ export function drawHud(ctx, state, viewW, viewH) {
   ctx.fillStyle = p.health > 30 ? '#7ae08a' : '#e84a4a';
   ctx.fillRect(24, 50, 180 * Math.max(0, p.health / 100), 12);
   text(ctx, `${Math.ceil(p.health)} HP`, 210, 61, 13, PALETTE.muted, 'left');
-  text(ctx, p.inCar ? 'DRIVING' : `AMMO ${p.ammo}`, 24, 86, 14, PALETTE.muted, 'left');
+  text(ctx, p.inCar ? `DRIVING · AMMO ${p.ammo}` : `AMMO ${p.ammo}`, 24, 86, 14, PALETTE.muted, 'left');
   // Top-right: wanted stars.
   panel(ctx, viewW - 262, 12, 250, 84);
   text(ctx, 'WANTED', viewW - 250, 40, 15, PALETTE.muted, 'left');

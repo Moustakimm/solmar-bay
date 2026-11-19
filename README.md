@@ -18,10 +18,17 @@ node serve.ts
 - WASD / arrows — move on foot, drive in a car
 - E — enter / leave a car
 - Space — punch
-- Click — shoot (aim with the mouse)
+- Click — shoot (aim with the mouse), including drive-by shooting from a car
 - Shift — run
 - P / Esc — pause
 - M — mute
+
+Cars take damage: shoot one enough and it is a smoking wreck, and a wrecked
+police car stops chasing. The gold Comet is the fastest car in Solmar Bay.
+Traffic keeps moving — cars that brake for the car ahead pull away again —
+and the police drive around buildings instead of through them. The Docks
+have container yards, the Marina has boats at anchor, and the beach has
+umbrellas; hard turns leave tyre marks on the road.
 
 ## Run it (the entry program)
 

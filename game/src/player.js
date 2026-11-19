@@ -1,7 +1,7 @@
 // The player: Jax, new in Solmar Bay. On foot he walks and runs, punches and
 // shoots toward the mouse; in a car he drives it. Entering and leaving a car,
 // crashing, picking things up and taking damage all live here.
-import { CAR, COP, PED, PLAYER, SEA_Y, WANTED, WORLD } from './config.js';
+import { CAR, CAR_HP, COP, PED, PLAYER, SEA_Y, WANTED, WORLD } from './config.js';
 import { collideBuildings, onRoad } from './world.js';
 import { ACTION_ENTER_CAR, ACTION_PUNCH } from './input.js';
 import { EVENT_BUSTED, EVENT_CRASH, EVENT_PICKUP, EVENT_SHOT, EVENT_WASTED } from './world.js';
@@ -28,6 +28,13 @@ export function makeCar(x, y, angle, opts) {
     police: !!(opts && opts.police),
     traffic: !!(opts && opts.traffic),
     driver: null,
+    // A car's own tuning and damage: the Comet is quicker, a police cruiser
+    // is tougher, and any car can be shot until it is a smoking wreck.
+    topSpeed: (opts && opts.topSpeed) || 0,
+    accel: (opts && opts.accel) || 0,
+    hp: (opts && opts.hp) || CAR_HP,
+    wrecked: false,
+    disabled: false,
   };
 }
 
@@ -74,15 +81,11 @@ function tryEnterCar(state, helpers) {
     if (d < bestD) { bestD = d; best = car; }
   }
   if (!best) return 0;
-  const wasParked = best.parked;
   best.parked = false;
   best.traffic = false;
   p.inCar = best;
   p.angle = best.angle;
-  if (!wasParked) {
-    // Stealing a car somebody was driving is a crime; a parked one is, too, in Solmar Bay.
-    return helpers.commitCrime(WANTED.stealCar);
-  }
+  // Taking a car is a crime in Solmar Bay, whether it was parked or driven.
   return helpers.commitCrime(WANTED.stealCar);
 }
 
@@ -141,13 +144,18 @@ function angleDiff(a, b) {
 
 function shoot(state, helpers) {
   const p = state.player;
-  if (p.inCar || p.ammo <= 0 || p.shootTimer > 0) return 0;
-  p.shootTimer = 0.28;
+  if (p.ammo <= 0 || p.shootTimer > 0) return 0;
+  // Shooting from the driver's seat is a drive-by: slower, and the shot
+  // starts at the car's nose instead of at Jax.
+  const inCar = !!p.inCar;
+  p.shootTimer = inCar ? 0.35 : 0.28;
   p.ammo -= 1;
-  const aim = Math.atan2(state.aimY - p.y, state.aimX - p.x);
+  const ox = inCar ? p.inCar.x : p.x;
+  const oy = inCar ? p.inCar.y : p.y;
+  const aim = Math.atan2(state.aimY - oy, state.aimX - ox);
   p.angle = aim;
-  const mx = p.x + Math.cos(aim) * 26;
-  const my = p.y + Math.sin(aim) * 26;
+  const mx = ox + Math.cos(aim) * 26;
+  const my = oy + Math.sin(aim) * 26;
   helpers.burst(mx, my, '#ffd94d', 5, 160);
   state.shake = Math.max(state.shake, 3);
   let events = EVENT_SHOT;
@@ -159,17 +167,24 @@ function shoot(state, helpers) {
   for (const ped of state.peds) if (ped.health > 0) targets.push({ x: ped.x, y: ped.y, r: PED.radius, kind: 'ped', ref: ped });
   for (const cop of state.cops) if (cop.health > 0) targets.push({ x: cop.x, y: cop.y, r: COP.radius, kind: 'cop', ref: cop });
   for (const car of state.cars) {
-    if (car === p.inCar) continue;
+    if (car === p.inCar || car.wrecked) continue;
     targets.push({ x: car.x, y: car.y, r: CAR.radius, kind: 'car', ref: car });
   }
+  for (const car of state.copCars) {
+    if (car.wrecked || car.disabled) continue;
+    targets.push({ x: car.x, y: car.y, r: CAR.radius, kind: 'copcar', ref: car });
+  }
   for (const t of targets) {
-    const dx = t.x - p.x;
-    const dy = t.y - p.y;
+    const dx = t.x - ox;
+    const dy = t.y - oy;
     const along = dx * Math.cos(aim) + dy * Math.sin(aim);
     if (along < 0 || along > bestD) continue;
     const across = Math.abs(-dx * Math.sin(aim) + dy * Math.cos(aim));
     if (across < t.r + 6 && along < bestD) { bestD = along; best = t; }
   }
+  const endX = ox + Math.cos(aim) * bestD;
+  const endY = oy + Math.sin(aim) * bestD;
+  if (state.tracers.length < 8) state.tracers.push({ x1: mx, y1: my, x2: endX, y2: endY, life: 0.09, maxLife: 0.09 });
   if (best) {
     helpers.burst(best.x, best.y, '#e84a4a', 8, 130);
     if (best.kind === 'ped') {
@@ -185,6 +200,22 @@ function shoot(state, helpers) {
       } else {
         events |= helpers.commitCrime(WANTED.hitCop);
       }
+    } else {
+      // A car takes damage: enough hits and it is a smoking wreck. A wrecked
+      // police car stops chasing; a wrecked traffic car stops dead.
+      best.ref.hp -= 1;
+      helpers.burst(best.x, best.y, '#8a8a8a', 6, 90);
+      if (best.ref.hp <= 0) {
+        best.ref.wrecked = true;
+        best.ref.speed = 0;
+        if (best.kind === 'copcar') {
+          best.ref.disabled = true;
+          helpers.burst(best.x, best.y, '#5a7dff', 12, 150);
+        } else {
+          best.ref.traffic = false;
+          best.ref.parked = true;
+        }
+      }
     }
   }
   return events;
@@ -196,9 +227,13 @@ function driveCar(state, dt, input, helpers) {
   const axis = input.axis;
   const forward = axis.y < 0 ? 1 : axis.y > 0 ? -1 : 0; // W is up on screen: forward
   const steer = axis.x;
-  if (forward > 0) car.speed = Math.min(CAR.maxSpeed, car.speed + CAR.accel * dt);
+  // The car's own tuning wins over the defaults: the gold Comet outruns
+  // everything else on the road.
+  const topSpeed = car.topSpeed || CAR.maxSpeed;
+  const accel = car.accel || CAR.accel;
+  if (forward > 0) car.speed = Math.min(topSpeed, car.speed + accel * dt);
   else if (forward < 0) {
-    car.speed = car.speed > 20 ? Math.max(0, car.speed - CAR.brake * dt) : Math.max(-CAR.reverseMax, car.speed - CAR.accel * 0.6 * dt);
+    car.speed = car.speed > 20 ? Math.max(0, car.speed - CAR.brake * dt) : Math.max(-CAR.reverseMax, car.speed - accel * 0.6 * dt);
   } else {
     car.speed *= Math.max(0, 1 - 0.9 * dt);
     if (Math.abs(car.speed) < 4) car.speed = 0;
@@ -229,9 +264,15 @@ function driveCar(state, dt, input, helpers) {
   p.x = car.x;
   p.y = car.y;
   p.angle = car.angle;
-  // Skid dust when turning hard at speed.
-  if (Math.abs(steer) > 0 && Math.abs(car.speed) > 300 && Math.random() < 0.3) {
-    helpers.addParticle(car.x - Math.cos(car.angle) * 22, car.y - Math.sin(car.angle) * 22, 0, 0, 0.5, '#c9c2ae', 4);
+  // Skid dust when turning hard at speed, and a dark mark left on the road.
+  if (Math.abs(steer) > 0 && Math.abs(car.speed) > 300) {
+    if (Math.random() < 0.3) {
+      helpers.addParticle(car.x - Math.cos(car.angle) * 22, car.y - Math.sin(car.angle) * 22, 0, 0, 0.5, '#c9c2ae', 4);
+    }
+    if (Math.abs(steer) > 0.6 && state.skids.length < 160) {
+      const back = { x: car.x - Math.cos(car.angle) * 24, y: car.y - Math.sin(car.angle) * 24 };
+      state.skids.push({ x: back.x, y: back.y, angle: car.angle, life: 6, maxLife: 6 });
+    }
   }
   // Running over a pedestrian at speed is a crime and hurts the car a little.
   for (const ped of state.peds) {

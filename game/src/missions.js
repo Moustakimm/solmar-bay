@@ -42,19 +42,22 @@ function advance(state, run, helpers) {
   run.step += 1;
   if (run.step >= mission.steps.length) {
     state.cash += mission.reward;
-    state.message = `Mission complete: ${mission.title} — +$${mission.reward}`;
-    state.messageTimer = 4;
     helpers.burst(state.player.x, state.player.y, '#7ae08a', 16, 180);
     run.index += 1;
     run.step = 0;
     run.timer = 0;
     if (run.index >= run.list.length) {
       run.done = true;
+      state.message = `Mission complete: ${mission.title} — +$${mission.reward}. King of Solmar! Every job done.`;
+      state.messageTimer = 6;
       return EVENT_MISSION | EVENT_WIN;
     }
     const next = currentMission(run);
-    state.message = `New mission: ${next.title} — ${next.brief}`;
+    // The completion line used to be overwritten at once by the next brief;
+    // say both, so the player actually sees the reward.
+    state.message = `Mission complete: ${mission.title} — +$${mission.reward}. New mission: ${next.title} — ${next.brief}`;
     state.messageTimer = 6;
+    if (next.timer) run.timer = next.timer;
     return EVENT_MISSION;
   }
   const step = currentStep(run);
@@ -74,7 +77,10 @@ export function stepMissions(state, dt, helpers) {
   const step = currentStep(run);
   if (!step) return 0;
   let events = 0;
-  if (step.timer) {
+  // A mission-level timer (the Courier Run's 150 seconds) starts with the
+  // mission, not with its last step, and re-arms on a retry.
+  if (mission.timer && run.timer <= 0 && run.step === 0) run.timer = mission.timer;
+  if (run.timer > 0) {
     run.timer -= dt;
     if (run.timer <= 0) {
       // Out of time: the job fails, but Rosa gives it again.

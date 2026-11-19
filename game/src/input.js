@@ -26,7 +26,9 @@ export function createInput(canvas) {
     keys.add(k);
   });
   window.addEventListener('keyup', (event) => keys.delete(keyOf(event)));
-  window.addEventListener('blur', () => keys.clear());
+  // Losing the window must not leave a key stuck down — or a pressed action
+  // queued — so a click back in later fires a stale punch or pause.
+  window.addEventListener('blur', () => { keys.clear(); pressed.clear(); });
 
   canvas.addEventListener('mousemove', (event) => {
     const rect = canvas.getBoundingClientRect();

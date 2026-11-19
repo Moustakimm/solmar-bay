@@ -21,7 +21,8 @@ function text(ctx, value, x, y, size, color, align) {
   ctx.fillText(value, x, y);
 }
 
-function drawCarBody(ctx, x, y, angle, color, kind, gold) {
+function drawCarBody(ctx, car) {
+  const { x, y, angle, color, kind, gold } = car;
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
@@ -32,17 +33,20 @@ function drawCarBody(ctx, x, y, angle, color, kind, gold) {
   ctx.fillRect(-24, 9, 10, 6);
   ctx.fillRect(14, -15, 10, 6);
   ctx.fillRect(14, 9, 10, 6);
-  ctx.fillStyle = color;
+  // A wreck is a charred shell: dark body, no shine, a dented-looking roof.
+  ctx.fillStyle = car.wrecked ? '#3a3a3a' : color;
   ctx.beginPath();
   ctx.roundRect(-27, -13, 54, 26, 7);
   ctx.fill();
-  ctx.fillStyle = 'rgba(20, 30, 50, 0.85)';
+  ctx.fillStyle = car.wrecked ? 'rgba(0, 0, 0, 0.7)' : 'rgba(20, 30, 50, 0.85)';
   ctx.beginPath();
   ctx.roundRect(2, -10, 14, 20, 4);
   ctx.fill();
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-  ctx.fillRect(24, -9, 3, 6);
-  ctx.fillRect(24, 3, 3, 6);
+  if (!car.wrecked) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.fillRect(24, -9, 3, 6);
+    ctx.fillRect(24, 3, 3, 6);
+  }
   ctx.fillStyle = '#ff3b30';
   ctx.fillRect(-27, -8, 3, 5);
   ctx.fillRect(-27, 3, 3, 5);
@@ -110,8 +114,11 @@ export function createRenderer(canvas) {
 
   function drawWorld(state, zoom, snap) {
     const p = state.player;
-    const targetX = p.x;
-    const targetY = p.y;
+    // The camera leads the car a little at speed, so a chase reads as fast —
+    // but never in a staged shot, where the scene is composed around the car.
+    const lead = p.inCar && !snap ? Math.min(90, Math.abs(p.inCar.speed) * 0.18) : 0;
+    const targetX = p.x + Math.cos(p.angle) * lead;
+    const targetY = p.y + Math.sin(p.angle) * lead;
     if (snap) {
       camX = targetX;
       camY = targetY;
@@ -137,6 +144,30 @@ export function createRenderer(canvas) {
     ctx.fillStyle = PALETTE.seaDeep;
     for (let x = 0; x < WORLD.width; x += 90) {
       ctx.fillRect(x + ((state.elapsed * 20 + x) % 90), SEA_Y + 18, 46, 3);
+    }
+    // Boats at anchor off the Marina and out in the bay.
+    for (const boat of state.boats) {
+      ctx.save();
+      ctx.translate(boat.x, boat.y);
+      ctx.rotate(boat.angle);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+      ctx.beginPath();
+      ctx.ellipse(2, 3, boat.len / 2, 9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f4f1e6';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, boat.len / 2, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = boat.sail;
+      ctx.beginPath();
+      ctx.moveTo(0, -6);
+      ctx.lineTo(0, -26);
+      ctx.lineTo(12, -6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#5a4632';
+      ctx.fillRect(-1, -26, 2, 26);
+      ctx.restore();
     }
     // Parks.
     for (const park of state.parks) {
@@ -173,6 +204,17 @@ export function createRenderer(canvas) {
       ctx.fillRect(0, ry - 60, WORLD.width, 12);
       ctx.fillRect(0, ry + 48, WORLD.width, 12);
     }
+    // Tyre marks, fading where hard turns left them.
+    for (const skid of state.skids) {
+      ctx.save();
+      ctx.translate(skid.x, skid.y);
+      ctx.rotate(skid.angle);
+      ctx.globalAlpha = 0.35 * (skid.life / skid.maxLife);
+      ctx.fillStyle = '#22222a';
+      ctx.fillRect(-14, -4, 28, 8);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
     // Buildings with soft shadows and roof lines.
     for (const b of state.buildings) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
@@ -203,6 +245,53 @@ export function createRenderer(canvas) {
       ctx.beginPath();
       ctx.arc(t.x - t.r * 0.3, t.y - t.r * 0.3, t.r * 0.4, 0, Math.PI * 2);
       ctx.fill();
+    }
+    // Beach umbrellas on the sand.
+    for (const u of state.umbrellas) {
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.beginPath();
+      ctx.ellipse(u.x + 3, u.y + 4, u.r, u.r * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = u.color;
+      ctx.beginPath();
+      ctx.arc(u.x, u.y, u.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.beginPath();
+      ctx.moveTo(u.x, u.y);
+      ctx.arc(u.x, u.y, u.r, -Math.PI / 2, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(u.x, u.y);
+      ctx.arc(u.x, u.y, u.r, Math.PI / 2, Math.PI);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Dock containers, stacked where the yard stacked them.
+    for (const c of state.containers) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+      ctx.fillRect(c.x + 5, c.y + 6, c.w, c.h);
+      ctx.fillStyle = c.color;
+      ctx.fillRect(c.x, c.y, c.w, c.h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(c.x + 1, c.y + 1, c.w - 2, c.h - 2);
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      for (let i = 1; i < 4; i += 1) {
+        ctx.beginPath();
+        ctx.moveTo(c.x + (c.w / 4) * i, c.y + 3);
+        ctx.lineTo(c.x + (c.w / 4) * i, c.y + c.h - 3);
+        ctx.stroke();
+      }
+      if (c.stacked) {
+        ctx.fillStyle = c.color;
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(c.x + 6, c.y - 16, c.w - 12, 16);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.strokeRect(c.x + 7, c.y - 15, c.w - 14, 14);
+      }
     }
     // Mission marker: a pulsing beacon and a ring on the ground.
     const marker = missionMarker(state.mission);
@@ -254,16 +343,18 @@ export function createRenderer(canvas) {
     // Cars: traffic, parked, police, the player's.
     for (const car of state.cars) {
       if (car === p.inCar) continue;
-      drawCarBody(ctx, car.x, car.y, car.angle, car.color, car.police ? 'police' : car.kind, car.gold);
+      drawCarBody(ctx, car);
     }
     for (const car of state.copCars) {
-      drawCarBody(ctx, car.x, car.y, car.angle, car.color, 'police', false);
-      // Flashing light bar.
-      const on = Math.floor(car.siren * 3) % 2 === 0;
-      ctx.fillStyle = on ? '#ff3b30' : '#3b82ff';
-      ctx.beginPath();
-      ctx.arc(car.x, car.y - 4, 5, 0, Math.PI * 2);
-      ctx.fill();
+      drawCarBody(ctx, car);
+      // Flashing light bar — dark on a disabled car.
+      if (!car.disabled) {
+        const on = Math.floor(car.siren * 3) % 2 === 0;
+        ctx.fillStyle = on ? '#ff3b30' : '#3b82ff';
+        ctx.beginPath();
+        ctx.arc(car.x, car.y - 4, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     // Foot cops.
     for (const cop of state.cops) {
@@ -273,7 +364,7 @@ export function createRenderer(canvas) {
     // The player.
     if (!p.dead) {
       if (p.inCar) {
-        drawCarBody(ctx, p.inCar.x, p.inCar.y, p.inCar.angle, p.inCar.color, p.inCar.police ? 'police' : p.inCar.kind, p.inCar.gold);
+        drawCarBody(ctx, p.inCar);
       } else if (p.invulnerable === 0 || Math.floor(p.invulnerable * 10) % 2 === 1) {
         drawPerson(ctx, p.x, p.y, p.angle, PALETTE.playerJacket, 14, true, false);
       }
@@ -283,6 +374,17 @@ export function createRenderer(canvas) {
       ctx.globalAlpha = Math.max(0, part.life / part.maxLife);
       ctx.fillStyle = part.color;
       ctx.fillRect(part.x - part.size / 2, part.y - part.size / 2, part.size, part.size);
+    }
+    ctx.globalAlpha = 1;
+    // Gunshot tracers: a bright line from the muzzle, gone in a blink.
+    for (const t of state.tracers) {
+      ctx.globalAlpha = Math.max(0, t.life / t.maxLife);
+      ctx.strokeStyle = '#ffe9a8';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(t.x1, t.y1);
+      ctx.lineTo(t.x2, t.y2);
+      ctx.stroke();
     }
     ctx.globalAlpha = 1;
     ctx.restore();

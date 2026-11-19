@@ -1,7 +1,7 @@
 // Cars: traffic that drives the road grid, parked cars waiting to be stolen,
 // and the gold Comet the Hot Wheels mission needs. Traffic cars pick a road,
 // a lane and a direction, turn at intersections, and slow for the car ahead.
-import { CAR, ROADS_X, ROADS_Y, ROAD_W, SEA_Y, WORLD } from './config.js';
+import { CAR, COMET, ROADS_X, ROADS_Y, ROAD_W, SEA_Y, WORLD } from './config.js';
 import { makeCar } from './player.js';
 import { collideBuildings } from './world.js';
 import { EVENT_CRASH } from './world.js';
@@ -31,7 +31,11 @@ function spawnTrafficCar(state, random, anywhere) {
   car.along = along;
   car.dir = dir;
   car.lane = lane;
-  car.speed = CAR.trafficSpeed * (0.85 + random() * 0.3);
+  // The speed this car cruises at when the road ahead is clear. Braking for
+  // the car in front must not overwrite it, or a car that once stopped would
+  // crawl forever and the whole city would grind to a halt behind it.
+  car.cruise = CAR.trafficSpeed * (0.85 + random() * 0.3);
+  car.speed = car.cruise;
   car.wait = 0;
   return car;
 }
@@ -54,8 +58,9 @@ export function spawnTraffic(state, random) {
     });
     state.cars.push(car);
   }
-  // The gold Comet for the Hot Wheels mission, parked at the Marina.
-  const gold = makeCar(300, 1820, Math.PI / 2, { color: '#ffd94d', gold: true, parked: true, kind: 'comet' });
+  // The gold Comet for the Hot Wheels mission, parked at the Marina — tuned
+  // to outrun anything else on the road.
+  const gold = makeCar(300, 1820, Math.PI / 2, { color: '#ffd94d', gold: true, parked: true, kind: 'comet', topSpeed: COMET.topSpeed, accel: COMET.accel, hp: COMET.hp });
   state.cars.push(gold);
   state.goldCar = gold;
 }
@@ -105,10 +110,11 @@ function maybeTurn(car, random) {
 }
 
 function stepOneTraffic(state, car, dt, random) {
-  if (car.parked || car.police) return 0;
+  if (car.parked || car.police || car.wrecked) return 0;
   if (!car.traffic) return 0;
   const ahead = carAhead(state, car);
-  const target = ahead < 90 ? 0 : car.speed;
+  // Stop for the car ahead, then pull away again at cruise speed.
+  const target = ahead < 90 ? 0 : car.cruise;
   car.speed += (target - car.speed) * Math.min(1, dt * 2);
   if (car.speed < 1) car.speed = 0;
   car.along += car.dir * car.speed * dt;
@@ -131,6 +137,12 @@ export function stepTraffic(state, dt, random) {
   let events = 0;
   for (const car of state.cars) {
     events |= stepOneTraffic(state, car, dt, random);
+  }
+  // A wrecked car smoulders where it stopped.
+  for (const car of state.cars) {
+    if (car.wrecked && random() < dt * 2.5 && state.particles.length < 240) {
+      state.particles.push({ x: car.x + (random() - 0.5) * 20, y: car.y - 10, vx: 0, vy: -26, life: 1.2, maxLife: 1.2, color: '#8a8a8a', size: 6 });
+    }
   }
   // Traffic cars nudge each other apart when they overlap.
   for (let i = 0; i < state.cars.length; i += 1) {

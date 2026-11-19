@@ -33,24 +33,27 @@ export function districtAt(x, y) {
   return 'Solmar Bay';
 }
 
-/** Push a circle out of every building it overlaps; returns true when it hit one. */
+/** Push a circle out of every building (and dock container) it overlaps; returns true when it hit one. */
 export function collideBuildings(state, x, y, radius) {
   let hit = false;
-  for (const b of state.buildings) {
-    const cx = Math.max(b.x, Math.min(x, b.x + b.w));
-    const cy = Math.max(b.y, Math.min(y, b.y + b.h));
-    const dx = x - cx;
-    const dy = y - cy;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < radius * radius) {
-      hit = true;
-      if (d2 > 0.01) {
-        const d = Math.sqrt(d2);
-        const push = radius - d;
-        x += (dx / d) * push;
-        y += (dy / d) * push;
-      } else {
-        y -= radius;
+  const solids = state.containers ? [state.buildings, state.containers] : [state.buildings];
+  for (const list of solids) {
+    for (const b of list) {
+      const cx = Math.max(b.x, Math.min(x, b.x + b.w));
+      const cy = Math.max(b.y, Math.min(y, b.y + b.h));
+      const dx = x - cx;
+      const dy = y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < radius * radius) {
+        hit = true;
+        if (d2 > 0.01) {
+          const d = Math.sqrt(d2);
+          const push = radius - d;
+          x += (dx / d) * push;
+          y += (dy / d) * push;
+        } else {
+          y -= radius;
+        }
       }
     }
   }
@@ -117,7 +120,55 @@ function buildCity(random) {
   for (let x = 60; x < WORLD.width; x += 130) {
     trees.push({ x: x + random() * 40, y: BEACH_Y + 30 + random() * 50, r: 14, palm: true });
   }
-  return { buildings, trees, parks };
+  // The Docks work for a living: two container yards. Any building that
+  // would stand inside a yard is cleared first, so no container ever sits
+  // inside a warehouse.
+  const yards = [
+    { x: 2360, y: 1200, w: 280, h: 220 },
+    { x: 2800, y: 1620, w: 280, h: 220 },
+  ];
+  const containers = [];
+  const yardColors = ['#c9563c', '#3c7ac9', '#4fae5a', '#e8c33a', '#7a4fd9'];
+  for (const yard of yards) {
+    for (let i = buildings.length - 1; i >= 0; i -= 1) {
+      const b = buildings[i];
+      if (b.x < yard.x + yard.w && b.x + b.w > yard.x && b.y < yard.y + yard.h && b.y + b.h > yard.y) {
+        buildings.splice(i, 1);
+      }
+    }
+    for (let gy = 0; gy < 3; gy += 1) {
+      for (let gx = 0; gx < 4; gx += 1) {
+        if (random() < 0.2) continue;
+        containers.push({
+          x: yard.x + 12 + gx * 70, y: yard.y + 12 + gy * 66,
+          w: 60, h: 54,
+          color: yardColors[Math.floor(random() * yardColors.length)],
+          stacked: random() < 0.4,
+        });
+      }
+    }
+  }
+  // Boats at anchor off the Marina and out in the bay.
+  const boats = [];
+  const sailColors = ['#e8e8e8', '#ffd94d', '#c94f8a', '#3dc9c9'];
+  for (let i = 0; i < 9; i += 1) {
+    const inMarina = i < 5;
+    boats.push({
+      x: inMarina ? 120 + random() * 700 : 150 + random() * 2800,
+      y: inMarina ? 2320 + random() * 60 : 2330 + random() * 50,
+      angle: (random() - 0.5) * 0.9,
+      len: 44 + random() * 30,
+      sail: sailColors[Math.floor(random() * sailColors.length)],
+    });
+  }
+  // Beach umbrellas along the sand.
+  const umbrellas = [];
+  const umbrellaColors = ['#e84a4a', '#ffd94d', '#3d7ad9', '#c94f8a', '#4fae5a'];
+  for (let x = 140; x < WORLD.width - 100; x += 190) {
+    if (random() < 0.25) continue;
+    umbrellas.push({ x: x + random() * 60, y: 2190 + random() * 70, r: 15 + random() * 6, color: umbrellaColors[Math.floor(random() * umbrellaColors.length)] });
+  }
+  return { buildings, trees, parks, containers, boats, umbrellas };
 }
 
 export function createWorld(random) {
@@ -126,12 +177,17 @@ export function createWorld(random) {
     buildings: city.buildings,
     trees: city.trees,
     parks: city.parks,
+    containers: city.containers,
+    boats: city.boats,
+    umbrellas: city.umbrellas,
     player: null,
     cars: [],
     peds: [],
     cops: [],
     copCars: [],
     particles: [],
+    skids: [], // tyre marks, fading over a few seconds
+    tracers: [], // gunshot lines, gone in a blink
     pickups: [],
     time: 14 * 60, // game clock in minutes: 14:00, golden afternoon
     elapsed: 0,
@@ -159,6 +215,8 @@ export function createWorld(random) {
     state.cops = [];
     state.copCars = [];
     state.particles = [];
+    state.skids = [];
+    state.tracers = [];
     state.pickups = [];
     state.time = 14 * 60;
     state.elapsed = 0;
@@ -245,7 +303,7 @@ export function createWorld(random) {
       }
     }
 
-    // Particles age out.
+    // Particles age out; skid marks fade and tracers vanish fast.
     for (let i = state.particles.length - 1; i >= 0; i -= 1) {
       const p = state.particles[i];
       p.life -= dt;
@@ -254,6 +312,14 @@ export function createWorld(random) {
       p.vx *= 0.94;
       p.vy *= 0.94;
       if (p.life <= 0) state.particles.splice(i, 1);
+    }
+    for (let i = state.skids.length - 1; i >= 0; i -= 1) {
+      state.skids[i].life -= dt;
+      if (state.skids[i].life <= 0) state.skids.splice(i, 1);
+    }
+    for (let i = state.tracers.length - 1; i >= 0; i -= 1) {
+      state.tracers[i].life -= dt;
+      if (state.tracers[i].life <= 0) state.tracers.splice(i, 1);
     }
     return events;
   }

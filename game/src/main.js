@@ -201,6 +201,9 @@ function runGame() {
         world.step(STEP, { axis: { x: 0, y: 0 }, actions: 0, clicked: false });
       }
     }
+    // Pull the camera out a touch at speed: the road feels faster.
+    const car = world.state.player.inCar;
+    zoom = car ? 1 - Math.min(0.12, Math.abs(car.speed) / (car.topSpeed || 560) * 0.12) : 1;
     renderer.draw(world.state, screen, best, zoom);
   }
 

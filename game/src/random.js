@@ -10,3 +10,8 @@ export function createRandom(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+/** An integer in [min, max] from a seeded random, for spawn-time picks. */
+export function randomInt(random, min, max) {
+  return min + Math.floor(random() * (max - min + 1));
+}
